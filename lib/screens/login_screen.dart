@@ -84,6 +84,9 @@ class _LoginScreenState extends State<LoginScreen> {
     //4.9 (modificado) Si algún campo tiene formato inválido, activar fallo y detener aquí
     if (emailTypedError != null || pwdTypedError != null) {
       _trigFail?.fire();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Credenciales no válidas")),
+      );
       return;
     }
 
@@ -118,9 +121,13 @@ class _LoginScreenState extends State<LoginScreen> {
       //5.8 Si Firebase rechaza el login, apagar loading y mostrar al osito triste
       setState(() {
         _isLoading = false;
-        pwdError = "Credenciales incorrectas en Firebase";
       });
       _trigFail?.fire();
+      if (mounted){
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Credenciales no válidas")),
+        );
+      }
     }
   }
 
@@ -217,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                   decoration: InputDecoration(
                     //4.9 Mostrar el error
-                    errorText: emailError,
+                    errorText: null,
                     hintText: "Email",
                     prefixIcon: const Icon(Icons.email),
                     border: OutlineInputBorder(
@@ -247,7 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: _isObscure,
                   decoration: InputDecoration(
                     //4.9 Mostrar el error
-                    errorText: pwdError,
+                    errorText: null,
                     hintText: "Password",
                     prefixIcon: const Icon(Icons.lock),
                     suffixIcon: IconButton(

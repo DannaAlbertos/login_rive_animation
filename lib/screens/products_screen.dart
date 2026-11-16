@@ -45,9 +45,9 @@ class ProductsScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final product = products[index];
               return ListTile(
-                title: Text(product['name'].toString()),
-                subtitle: Text('Stock: ${product['stock']}'),
-                trailing: Text('\$${product['price']}'),
+                title: Text(product['nombre'] ?? 'Sin nombre'),
+                subtitle: Text('Stock: ${product['cantidadStock']}'),
+                trailing: Text('\$${product['precioVenta']}'),
               );
             },
           );
