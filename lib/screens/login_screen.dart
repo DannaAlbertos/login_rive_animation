@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:rive/rive.dart' hide LinearGradient;
 import 'dart:async';
 //5.1 Importar Firebase Auth y la pantalla de productos
 import 'package:firebase_auth/firebase_auth.dart';
 import 'products_screen.dart';
+import 'signup_screen.dart';
 
 // Colores del login
 const _pink = Color(0xFFEE2680);
@@ -44,25 +46,16 @@ class _LoginScreenState extends State<LoginScreen> {
   final emailCtrl = TextEditingController();
   final pwdCtrl = TextEditingController();
 
-  //4.2 Errores para mostrar en la UI
-  String? emailError;
-  String? pwdError;
-
   //5.2 Variable para mostrar el CircularProgressIndicator mientras carga
   bool _isLoading = false;
 
-  // 4.3 Validadores
-  bool isValidEmail(String email) {
-    final re = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-    return re.hasMatch(email);
-  }
-
-  bool isValidPassword(String pass) {
-    // mínimo 8, una mayúscula, una minúscula, un dígito y un especial
-    final re = RegExp(
-      r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$',
+  // A2. Mensaje global ÚNICO (OWASP): no dice si falló el correo o la contraseña
+  void _showInvalidCredentials() {
+    _trigFail?.fire();
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Credenciales inválidas')),
     );
-    return re.hasMatch(pass);
   }
 
   //4.4 Dar acción al botón
@@ -72,16 +65,6 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = emailCtrl.text.trim();
     final pwd = pwdCtrl.text;
 
-    //Recalcular errores
-    final emailTypedError = isValidEmail(email) ? null : 'Invalid Email';
-    final pwdTypedError = isValidPassword(pwd) ? null : 'Invalid Password';
-
-    //4.5 Para mostrar el cambio
-    setState(() {
-      emailError = emailTypedError;
-      pwdError = pwdTypedError;
-    });
-
     //4.6 Cerrar el teclado y oso neutro
     FocusScope.of(context).unfocus();
     _typingDebounce?.cancel();
@@ -89,12 +72,9 @@ class _LoginScreenState extends State<LoginScreen> {
     _isHandsUp?.change(false);
     _numLook?.value = 50.0;
 
-    //4.9 (modificado) Si algún campo tiene formato inválido, activar fallo y detener aquí
-    if (emailTypedError != null || pwdTypedError != null) {
-      _trigFail?.fire();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Credenciales no válidas")),
-      );
+    // A1. Solo se valida que los campos no estén vacíos (sin regex ni errorText)
+    if (email.isEmpty || pwd.isEmpty) {
+      _showInvalidCredentials();
       return;
     }
 
@@ -112,32 +92,93 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       //5.6 Apagar loading, disparar éxito del osito y esperar a que termine su animación
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
       _trigSuccess?.fire();
       await Future.delayed(const Duration(seconds: 2));
 
-      //5.7 Navegar a la pantalla de productos (catálogo de vestidos)
+      //5.7 Navegar a la pantalla de productos (catálogo)
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const ProductsScreen()),
       );
     } catch (e) {
-      // TEMPORAL: muestra en la consola la causa real del fallo (bórralo cuando funcione)
-      debugPrint('Login error: $e');
+      // Solo en modo debug: el detalle del error nunca se muestra al usuario
+      if (kDebugMode) debugPrint('Login error: $e');
       //5.8 Si Firebase rechaza el login, apagar loading y mostrar al osito triste
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      _trigFail?.fire();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Credenciales no válidas")),
-        );
-      }
+      _showInvalidCredentials();
     }
+  }
+
+  // C1. "Forgot password?" funcional: Dialog que pide el correo y manda el enlace
+  Future<void> _forgotPassword() async {
+    final ctrl = TextEditingController(text: emailCtrl.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recuperar contraseña'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Escribe tu correo y te enviaremos un enlace para restablecer tu contraseña.',
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                hintText: 'Email',
+                prefixIcon: Icon(Icons.email_rounded),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: _pink),
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Enviar'),
+          ),
+        ],
+      ),
+    );
+
+    if (email == null) return; // canceló
+    if (!mounted) return;
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escribe tu correo')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+    } catch (e) {
+      if (kDebugMode) debugPrint('Reset error: $e');
+    }
+    if (!mounted) return;
+    // Mensaje genérico: no revela si el correo existe o no
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña.',
+        ),
+      ),
+    );
   }
 
   //2.2. Crear los oyentes o listeners
@@ -163,7 +204,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ---------- ESTILO (solo visual) ----------
 
-  // Círculo decorativo del fondo
   Widget _circle(double size, double opacity) => Container(
         width: size,
         height: size,
@@ -173,11 +213,10 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
 
-  // Estilo compartido de los campos de texto
+  // Estilo de los campos (sin errorText: A1)
   InputDecoration _decoration({
     required String hint,
     required IconData icon,
-    String? error,
     Widget? suffix,
   }) {
     OutlineInputBorder border(Color c, [double w = 1.5]) => OutlineInputBorder(
@@ -185,8 +224,6 @@ class _LoginScreenState extends State<LoginScreen> {
           borderSide: BorderSide(color: c, width: w),
         );
     return InputDecoration(
-      //4.9 Mostrar el error
-      errorText: error,
       hintText: hint,
       hintStyle: const TextStyle(color: _muted),
       prefixIcon: Icon(icon, color: _pink),
@@ -197,8 +234,6 @@ class _LoginScreenState extends State<LoginScreen> {
       border: border(Colors.transparent),
       enabledBorder: border(Colors.transparent),
       focusedBorder: border(_pink, 2),
-      errorBorder: border(Colors.redAccent),
-      focusedErrorBorder: border(Colors.redAccent, 2),
     );
   }
 
@@ -207,14 +242,13 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Fondo degradado rosa
           Positioned.fill(
             child: Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: const [
+                  colors: [
                     Color(0xFFFFC1DC),
                     Color(0xFFFFE3F0),
                     Color(0xFFFFF7FB),
@@ -223,11 +257,9 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
-          // Círculos decorativos
           Positioned(top: -70, right: -60, child: _circle(220, 0.35)),
           Positioned(top: 140, left: -80, child: _circle(160, 0.25)),
           Positioned(bottom: -90, right: -40, child: _circle(240, 0.30)),
-
           SafeArea(
             child: Center(
               child: SingleChildScrollView(
@@ -238,7 +270,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // ---- Osito Rive (lógica original sin cambios) ----
                       SizedBox(
                         width: double.infinity,
                         height: 200,
@@ -264,8 +295,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
                       ),
-
-                      // ---- Tarjeta flotante (el osito se asoma por arriba) ----
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.fromLTRB(24, 26, 24, 24),
@@ -318,16 +347,11 @@ class _LoginScreenState extends State<LoginScreen> {
                               keyboardType: TextInputType.emailAddress,
                               //1.5 vincular a campo de texto
                               onChanged: (value) {
-                                if (_isHandsUp != null) {
-                                  //No tapes los ojos al ver el email
-                                  //_isHandsUp!.change(false);
-                                }
                                 //si isChecking no es null
                                 if (_isChecking == null) return;
                                 //Activa el modo chismoso
                                 _isChecking!.change(true);
                                 //3.4. Implementar recorrido de mirada
-                                //Ajuste de límites del 0 al 100
                                 //80 medida de calibración. Clamp es un rango y se traduce como abrazadera
                                 final look =
                                     (value.length / 80.0 * 100).clamp(0.0, 100.0);
@@ -335,7 +359,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
                                 //3.5. Debounce: si vuelve a teclear, reinicia el controlador
                                 _typingDebounce?.cancel();
-                                //Crear nuevo timer
                                 _typingDebounce =
                                     Timer(const Duration(seconds: 3), () {
                                   if (!mounted) return;
@@ -346,7 +369,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               decoration: _decoration(
                                 hint: 'Email',
                                 icon: Icons.email_rounded,
-                                error: emailError,
                               ),
                             ),
                             const SizedBox(height: 14),
@@ -359,10 +381,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               focusNode: _passwordFocus,
                               //1.5 vincular a campo de texto
                               onChanged: (value) {
-                                if (_isChecking != null) {
-                                  //No actives el modo chismoso
-                                  //_isChecking!.change(false);
-                                }
                                 //si isHandsUp no es null
                                 if (_isHandsUp == null) return;
                                 //Tapa los ojos
@@ -372,7 +390,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               decoration: _decoration(
                                 hint: 'Password',
                                 icon: Icons.lock_rounded,
-                                error: pwdError,
                                 suffix: IconButton(
                                   onPressed: () {
                                     //Refrescar el icono
@@ -390,18 +407,22 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            const Align(
+                            const SizedBox(height: 6),
+                            // C1. Forgot password funcional
+                            Align(
                               alignment: Alignment.centerRight,
-                              child: Text(
-                                'Forgot password?',
-                                style: TextStyle(
-                                  color: _pinkDark,
-                                  fontWeight: FontWeight.w600,
+                              child: TextButton(
+                                onPressed: _forgotPassword,
+                                child: const Text(
+                                  'Forgot password?',
+                                  style: TextStyle(
+                                    color: _pinkDark,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 10),
 
                             //4.13 Botón de login con degradado
                             Container(
@@ -462,10 +483,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         children: [
                           const Text("Don't have an account?",
                               style: TextStyle(color: _muted)),
+                          // B1. "Sign up" navega con Navigator.push (para poder regresar)
                           TextButton(
-                            onPressed: () {},
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SignUpScreen(),
+                                ),
+                              );
+                            },
                             child: const Text(
-                              'Register',
+                              'Sign up',
                               style: TextStyle(
                                 color: _pinkDark,
                                 fontWeight: FontWeight.bold,

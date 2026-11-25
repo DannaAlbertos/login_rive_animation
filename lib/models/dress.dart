@@ -28,7 +28,9 @@ class Dress {
         id: (json['id'] as num?)?.toInt() ?? 0,
         name: json['name'] ?? '',
         description: json['description'] ?? '',
-        category: json['category'] ?? '',
+        category: json['category'] is Map
+        ? (json['category']['category'] ?? '').toString()
+        : (json['category'] ?? '').toString(),
         size: json['size'] ?? '',
         color: json['color'] ?? '',
         price: (json['price'] as num?)?.toDouble() ?? 0,
